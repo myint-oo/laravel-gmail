@@ -411,41 +411,54 @@ trait Replyable
 			->priority($this->priority);
 
 		if ($this->cc) {
-			$this->symfonyEmail->cc($this->returnCopies($this->cc));
+			$this->symfonyEmail->cc(...$this->returnCopies($this->cc));
 		}
 
-		if ($this->cc) {
-			$this->symfonyEmail->bcc($this->returnCopies($this->bcc));
+		if ($this->bcc) {
+			$this->symfonyEmail->bcc(...$this->returnCopies($this->bcc));
 		}
 
 		foreach ($this->attachments as $file) {
 			$this->symfonyEmail->attachFromPath($file);
 		}
 
-		$body->setRaw($this->base64_encode($this->symfonyEmail->toString()));
+		$string = $this->symfonyEmail->toString();
+
+		// Symfony strips Bcc when serializing because SMTP envelopes carry it,
+		// but the Gmail API reads recipients from the raw message headers.
+		if ($bcc = $this->symfonyEmail->getHeaders()->get('Bcc')) {
+			$string = $bcc->toString() . "\r\n" . $string;
+		}
+
+		$body->setRaw($this->base64_encode($string));
 
 		return $body;
 	}
 
 	/**
+	 * Normalises a cc/bcc value into a spreadable list of addresses,
+	 * since Symfony's Email::cc()/bcc() are variadic and reject arrays.
+	 *
 	 * @param array|string $cc
-	 * @return array|string
+	 * @return array<Address|string>
 	 */
 	public function returnCopies($cc)
 	{
-		if ($cc) {
-			$final = $this->cc;
-
-			if (is_array($this->cc)) {
-				foreach ($this->cc as $emailCc => $nameCc) {
-					$final[] = new Address($emailCc, $nameCc);
-				}
-			}
-
-			return $final;
+		if (!$cc) {
+			return [];
 		}
 
-		return [];
+		if (!is_array($cc)) {
+			return [$cc];
+		}
+
+		$final = [];
+
+		foreach ($cc as $emailCc => $nameCc) {
+			$final[] = new Address($emailCc, $nameCc);
+		}
+
+		return $final;
 	}
 
 	public function toAddress()
